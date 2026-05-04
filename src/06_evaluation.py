@@ -26,6 +26,7 @@ from sklearn.metrics import (
     confusion_matrix,
     log_loss,
     roc_auc_score,
+    roc_curve,
 )
 from xgboost import XGBClassifier
 
@@ -145,6 +146,93 @@ def plot_accuracy_by_level(df: pd.DataFrame, prob_col: str) -> Path:
     return out
 
 
+def plot_roc_curves(df: pd.DataFrame) -> Path:
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for col, label, color in [
+        ("lr_prob",  "Logistic Regression", "#3b82f6"),
+        ("rf_prob",  "Random Forest",       "#10b981"),
+        ("xgb_prob", "XGBoost",             "#f59e0b"),
+    ]:
+        fpr, tpr, _ = roc_curve(df["target"], df[col])
+        auc = roc_auc_score(df["target"], df[col])
+        ax.plot(fpr, tpr, label=f"{label} (AUC={auc:.3f})", color=color)
+    ax.plot([0, 1], [0, 1], "k--", alpha=0.4, label="Random")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.set_title("ROC curves — test set")
+    ax.legend(loc="lower right")
+    fig.tight_layout()
+    out = PLOTS_DIR / "roc_curves.png"
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    return out
+
+
+def plot_temporal_accuracy(df: pd.DataFrame, prob_col: str) -> Path:
+    df = df.copy()
+    df["year"] = (df["tourney_date"] // 10000).astype(int)
+    rows = []
+    for yr, sub in df.groupby("year"):
+        if len(sub) < 10:
+            continue
+        yhat = (sub[prob_col] >= 0.5).astype(int)
+        rows.append({
+            "year": yr,
+            "accuracy": accuracy_score(sub["target"], yhat),
+            "auc_roc": roc_auc_score(sub["target"], sub[prob_col]),
+            "n": len(sub),
+        })
+    tbl = pd.DataFrame(rows)
+    fig, ax1 = plt.subplots(figsize=(7, 4))
+    ax2 = ax1.twinx()
+    ax1.bar(tbl["year"].astype(str), tbl["accuracy"], color="#3b82f6", alpha=0.7, label="Accuracy")
+    ax2.plot(tbl["year"].astype(str), tbl["auc_roc"], color="#ef4444", marker="o", label="AUC-ROC")
+    ax1.set_ylim(0.5, 0.85)
+    ax2.set_ylim(0.5, 0.90)
+    ax1.set_ylabel("Accuracy", color="#3b82f6")
+    ax2.set_ylabel("AUC-ROC", color="#ef4444")
+    ax1.set_xlabel("Year")
+    ax1.set_title("XGBoost performance by year — test set")
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="lower right")
+    fig.tight_layout()
+    out = PLOTS_DIR / "temporal_accuracy.png"
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    return out
+
+
+def plot_elo_diff_win_rate(df: pd.DataFrame, prob_col: str) -> Path:
+    df = df.copy()
+    df["elo_bin"] = pd.cut(df["elo_diff"], bins=10)
+    grouped = df.groupby("elo_bin", observed=True).agg(
+        actual_win_rate=("target", "mean"),
+        mean_predicted=  (prob_col, "mean"),
+        n=               ("target", "count"),
+    ).reset_index()
+    grouped["bin_mid"] = grouped["elo_bin"].apply(lambda x: x.mid)
+    grouped = grouped[grouped["n"] >= 20]
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.scatter(grouped["bin_mid"], grouped["actual_win_rate"],
+               s=grouped["n"] / grouped["n"].max() * 200,
+               label="Actual win rate", color="#3b82f6", zorder=3)
+    ax.plot(grouped["bin_mid"], grouped["mean_predicted"],
+            color="#f59e0b", linewidth=2, label="Mean predicted prob", zorder=2)
+    ax.axhline(0.5, color="gray", linestyle="--", alpha=0.5)
+    ax.axvline(0, color="gray", linestyle="--", alpha=0.5)
+    ax.set_xlabel("Elo diff (player1 − player2)")
+    ax.set_ylabel("Win rate / predicted probability")
+    ax.set_title("Elo diff vs actual win rate — test set\n(bubble size ∝ match count)")
+    ax.legend()
+    fig.tight_layout()
+    out = PLOTS_DIR / "elo_diff_win_rate.png"
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    return out
+
+
 def plot_upset_distribution(df: pd.DataFrame, prob_col: str) -> Path:
     upset_mask = ((df["target"] == 1) & (df[prob_col] < 0.5)) | (
         (df["target"] == 0) & (df[prob_col] > 0.5)
@@ -196,6 +284,10 @@ def main() -> int:
     paths.append(plot_confusion(pred, "xgb_prob"))
     paths.append(plot_accuracy_by_level(pred, "xgb_prob"))
     paths.append(plot_upset_distribution(pred, "xgb_prob"))
+    paths.append(plot_roc_curves(pred))
+    paths.append(plot_temporal_accuracy(pred, "xgb_prob"))
+    if "elo_diff" in pred.columns:
+        paths.append(plot_elo_diff_win_rate(pred, "xgb_prob"))
     for p in paths:
         print(f"Wrote {p}")
 

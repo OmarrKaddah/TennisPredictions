@@ -80,6 +80,7 @@ def load_features() -> pd.DataFrame:
         df,
         columns=["player1_cluster", "player2_cluster"],
         prefix=["player1_cluster", "player2_cluster"],
+        dtype=int,
     )
     return df
 
@@ -195,10 +196,12 @@ def main() -> int:
     print(f"Class balance overall: {df['target'].mean():.3f}")
 
     one_hot_cols = sorted(
-        [c for c in df.columns if c.startswith(ONE_HOT_PREFIXES)]
+        [c for c in df.columns if c.startswith(ONE_HOT_PREFIXES)
+         and c not in NUMERIC_FEATURES]
     )
     feature_cols = NUMERIC_FEATURES + one_hot_cols
     feature_cols = [c for c in feature_cols if c in df.columns]
+    feature_cols = list(dict.fromkeys(feature_cols))  # guard against any remaining duplicates
     print(f"Total features: {len(feature_cols)}")
 
     train, val, test = temporal_splits(df)
@@ -268,7 +271,7 @@ def main() -> int:
     print(f"Wrote {schema_path}")
 
     test_predictions = test[
-        ["tourney_date", "surface", "tourney_level", "round", "target"]
+        ["tourney_date", "surface", "tourney_level", "round", "target", "elo_diff"]
     ].copy()
     test_predictions["lr_prob"] = lr_p
     test_predictions["rf_prob"] = rf_p

@@ -48,9 +48,9 @@ def derive_serve_columns(df: DataFrame) -> DataFrame:
 
 
 def fill_basic_nulls(df: DataFrame) -> DataFrame:
-    for s in SIDES:
-        rank_col = f"{s}_rank"
-        df = df.withColumn(rank_col, F.coalesce(F.col(rank_col), F.lit(999)).cast("int"))
+    # Rank/height columns use winner_/loser_ prefix; serve stats use w_/l_
+    for full in ("winner_rank", "loser_rank"):
+        df = df.withColumn(full, F.coalesce(F.col(full), F.lit(999)).cast("int"))
 
     height_median_per_surface = (
         df.select("surface", "winner_ht", "loser_ht")
@@ -60,10 +60,10 @@ def fill_basic_nulls(df: DataFrame) -> DataFrame:
         .agg(F.expr("percentile_approx(ht, 0.5)").alias("ht_median"))
     )
     df = df.join(height_median_per_surface, on="surface", how="left")
-    for s in SIDES:
+    for full in ("winner_ht", "loser_ht"):
         df = df.withColumn(
-            f"{s}_ht",
-            F.coalesce(F.col(f"{s}_ht"), F.col("ht_median")).cast("double"),
+            full,
+            F.coalesce(F.col(full), F.col("ht_median")).cast("double"),
         )
     df = df.drop("ht_median")
     return df
