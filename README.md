@@ -1,6 +1,6 @@
 # ATP Tennis Match Prediction
 
-CMPS451 Big Data & Analytics project. Predicts the winner of ATP
+Predicts the winner of ATP
 matches using surface-specific Elo, rolling form, fatigue, rolling
 serve stats, K-Means style clusters, and XGBoost. See
 [atp_tennis_prediction_plan.md](atp_tennis_prediction_plan.md) for the
